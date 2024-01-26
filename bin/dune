@@ -1,4 +1,4 @@
 (executable
  (public_name flowcaml)
  (name main)
- (libraries flowcaml))
+ (libraries flowcaml fmt minttea yojson cohttp cohttp-lwt-unix dotenv))
