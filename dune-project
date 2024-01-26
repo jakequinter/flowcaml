@@ -5,15 +5,15 @@
 (generate_opam_files true)
 
 (source
- (github username/reponame))
+ (github jakequinter/flowcaml))
 
-(authors "Author Name")
+(authors "Jake Quinter")
 
-(maintainers "Maintainer Name")
+(maintainers "Jake Quinter")
 
 (license LICENSE)
 
-(documentation https://url/to/documentation)
+(documentation https://github.com/jakequinter/flowcaml)
 
 (package
  (name flowcaml)
