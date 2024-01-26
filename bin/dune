@@ -1,0 +1,4 @@
+(executable
+ (public_name flowcaml)
+ (name main)
+ (libraries flowcaml))
