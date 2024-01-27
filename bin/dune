@@ -9,5 +9,6 @@
    fmt 
    lwt_ssl
    minttea 
+   spices
    tls-lwt 
    yojson))

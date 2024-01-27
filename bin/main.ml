@@ -10,6 +10,8 @@ let get_required_env var =
   | exception _ -> Fmt.failwith "Missing $%s" var
 ;;
 
+let highlight fmt = Spices.(default |> fg (color "#FF06B7") |> build) fmt
+
 (* Load required environment variables *)
 let () = Dotenv.export () |> ignore
 let gh_api_token = get_required_env "GITHUB_API_TOKEN"
@@ -218,7 +220,7 @@ let view model =
     let repo_list =
       model.repo_choices
       |> List.mapi (fun idx (repo, _checked) ->
-        let cursor = if model.repo_cursor = idx then ">" else " " in
+        let cursor = if model.repo_cursor = idx then highlight ">" else " " in
         Printf.sprintf "%s %s" cursor repo.name)
       |> String.concat "\n"
     in
@@ -237,7 +239,7 @@ Press q to quit.
     let workflow_list =
       model.workflow_choices
       |> List.mapi (fun idx (workflow, _checked) ->
-        let cursor = if model.repo_cursor = idx then ">" else " " in
+        let cursor = if model.repo_cursor = idx then highlight ">" else " " in
         Printf.sprintf
           "%s status: %s \n url: %s"
           cursor
@@ -259,7 +261,7 @@ Press q to quit.
     let orgs =
       model.org_choices
       |> List.mapi (fun idx ((org : org), _checked) ->
-        let cursor = if model.org_cursor = idx then ">" else " " in
+        let cursor = if model.org_cursor = idx then highlight ">" else " " in
         Printf.sprintf "%s %s" cursor org.login)
       |> String.concat "\n"
     in
