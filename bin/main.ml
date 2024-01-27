@@ -1,5 +1,3 @@
-[@@@warning "-32"]
-
 open Lwt.Syntax
 open Cohttp
 open Cohttp_lwt_unix
@@ -64,8 +62,8 @@ let fetch_org_repos ~login =
 type model =
   { choices : (org * [ `selected | `unselected ]) list
   ; cursor : int
-  ; selected_org : org option (* Add selected_org field *)
-  ; org_repos : repo list option (* Add org_repos field *)
+  ; selected_org : org option
+  ; org_repos : repo list option
   }
 
 let create_initial_model orgs =
@@ -133,10 +131,9 @@ Press q to quit.
   | _ ->
     let options =
       model.choices
-      |> List.mapi (fun idx ((org : org), checked) ->
+      |> List.mapi (fun idx ((org : org), _checked) ->
         let cursor = if model.cursor = idx then ">" else " " in
-        let checked = if checked = `selected then "x" else " " in
-        Printf.sprintf "%s [%s] %s" cursor checked org.login)
+        Printf.sprintf "%s %s" cursor org.login)
       |> String.concat "\n"
     in
     Printf.sprintf {|
