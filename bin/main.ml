@@ -17,6 +17,11 @@ let gh_api_token = get_required_env "GITHUB_API_TOKEN"
 type org = { login : string }
 type repo = { name : string }
 
+type workflow =
+  { status : string
+  ; url : string
+  }
+
 let parse_orgs json_str =
   let json = Yojson.Safe.from_string json_str in
   json
@@ -34,7 +39,13 @@ let fetch_orgs =
     Client.get ~headers (Uri.of_string "https://api.github.com/user/orgs")
   in
   let* body = Cohttp_lwt.Body.to_string body in
-  Lwt.return (parse_orgs body)
+  (* Lwt.return (parse_orgs body) *)
+  parse_orgs body
+  |> List.sort (fun a b ->
+    String.compare
+      (String.lowercase_ascii a.login)
+      (String.lowercase_ascii b.login))
+  |> Lwt.return
 ;;
 
 let parse_org_repos json_str =
@@ -56,7 +67,46 @@ let fetch_org_repos ~login =
   let code = resp |> Response.status |> Code.code_of_status in
   Printf.printf "Response code: %d\n" code;
   let* body = Cohttp_lwt.Body.to_string body in
-  Lwt.return (parse_org_repos body)
+  parse_org_repos body
+  |> List.sort (fun a b ->
+    String.compare
+      (String.lowercase_ascii a.name)
+      (String.lowercase_ascii b.name))
+  |> Lwt.return
+;;
+
+let parse_workflows json_str =
+  let json = Yojson.Safe.from_string json_str in
+  json
+  |> Yojson.Safe.Util.member "workflow_runs"
+  |> Yojson.Safe.Util.to_list
+  |> List.map (fun workflow ->
+    { status =
+        workflow
+        |> Yojson.Safe.Util.member "status"
+        |> Yojson.Safe.Util.to_string
+    ; url =
+        workflow
+        |> Yojson.Safe.Util.member "html_url"
+        |> Yojson.Safe.Util.to_string
+    })
+;;
+
+let fetch_workflows ~login ~repo =
+  let* resp, body =
+    Client.get
+      ~headers
+      (Uri.of_string
+         ("https://api.github.com/repos/"
+          ^ login
+          ^ "/"
+          ^ repo
+          ^ "/actions/runs?per_page=5"))
+  in
+  let code = resp |> Response.status |> Code.code_of_status in
+  Printf.printf "Response code: %d\n" code;
+  let* body = Cohttp_lwt.Body.to_string body in
+  Lwt.return (parse_workflows body)
 ;;
 
 type model =
@@ -64,7 +114,10 @@ type model =
   ; org_choices : (org * [ `selected | `unselected ]) list
   ; selected_org : org option
   ; repo_cursor : int
-  ; repo_choices : (repo * [ `selected | `unselected ]) list option
+  ; repo_choices : (repo * [ `selected | `unselected ]) list
+  ; selected_repo : repo option
+  ; workflow_choices : (workflow * [ `selected | `unselected ]) list
+  ; selected_workflow : workflow option
   }
 
 let create_initial_model orgs =
@@ -72,7 +125,10 @@ let create_initial_model orgs =
   ; org_choices = List.map (fun org -> org, `unselected) orgs
   ; selected_org = None
   ; repo_cursor = 0
-  ; repo_choices = None
+  ; repo_choices = []
+  ; selected_repo = None
+  ; workflow_choices = []
+  ; selected_workflow = None
   }
 ;;
 
@@ -93,7 +149,7 @@ let update event model =
     else (
       let repo_cursor =
         if model.repo_cursor = 0
-        then List.length (Option.value ~default:[] model.repo_choices) - 1
+        then List.length model.repo_choices - 1
         else model.repo_cursor - 1
       in
       { model with repo_cursor }, Command.Noop)
@@ -108,8 +164,7 @@ let update event model =
       { model with org_cursor }, Command.Noop)
     else (
       let repo_cursor =
-        if model.repo_cursor
-           = List.length (Option.value ~default:[] model.repo_choices) - 1
+        if model.repo_cursor = List.length model.repo_choices - 1
         then 0
         else model.repo_cursor + 1
       in
@@ -120,12 +175,17 @@ let update event model =
       | Some (org, _) -> Some org
       | None -> None
     in
-    ( (match selected_org_opt with
-       | Some org ->
+    let selected_repo_opt =
+      match List.nth_opt model.repo_choices model.repo_cursor with
+      | Some (repo, _) -> Some repo
+      | None -> None
+    in
+    ( (match selected_org_opt, selected_repo_opt with
+       | Some org, None ->
          let updated_model =
            { model with
              selected_org = Some org
-           ; repo_choices = None (* Reset repo_choices when selecting an org *)
+           ; repo_choices = [] (* Reset repo_choices when selecting an org *)
            }
          in
          Lwt_main.run
@@ -133,19 +193,30 @@ let update event model =
             Lwt.return
               { updated_model with
                 repo_choices =
-                  Some (List.map (fun repo -> repo, `unselected) org_repos)
+                  List.map (fun repo -> repo, `unselected) org_repos
               })
-       | None -> model)
+       | Some org, Some repo ->
+         let updated_model =
+           { model with selected_org = Some org; selected_repo = Some repo }
+         in
+         Lwt_main.run
+           (let* workflows = fetch_workflows ~login:org.login ~repo:repo.name in
+            Lwt.return
+              { updated_model with
+                workflow_choices =
+                  List.map (fun workflow -> workflow, `unselected) workflows
+              })
+       | _ -> model)
     , Command.Noop )
   | _ -> model, Command.Noop
 ;;
 
 let view model =
-  match model.selected_org, model.repo_choices with
-  | Some selected_org, Some org_repos ->
+  match model.selected_org, model.selected_repo, model.selected_workflow with
+  | Some selected_org, None, None ->
     let org_name = selected_org.login in
     let repo_list =
-      org_repos
+      model.repo_choices
       |> List.mapi (fun idx (repo, _checked) ->
         let cursor = if model.repo_cursor = idx then ">" else " " in
         Printf.sprintf "%s %s" cursor repo.name)
@@ -161,6 +232,29 @@ Press q to quit.
 |}
       org_name
       repo_list
+  | Some _, Some selected_repo, None ->
+    let repo_name = selected_repo.name in
+    let workflow_list =
+      model.workflow_choices
+      |> List.mapi (fun idx (workflow, _checked) ->
+        let cursor = if model.repo_cursor = idx then ">" else " " in
+        Printf.sprintf
+          "%s status: %s \n url: %s"
+          cursor
+          workflow.status
+          workflow.url)
+      |> String.concat "\n"
+    in
+    Printf.sprintf
+      {|
+Select a repo from %s:
+
+%s
+
+Press q to quit.
+|}
+      repo_name
+      workflow_list
   | _ ->
     let orgs =
       model.org_choices
