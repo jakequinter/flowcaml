@@ -60,17 +60,19 @@ let fetch_org_repos ~login =
 ;;
 
 type model =
-  { choices : (org * [ `selected | `unselected ]) list
-  ; cursor : int
+  { org_cursor : int
+  ; org_choices : (org * [ `selected | `unselected ]) list
   ; selected_org : org option
-  ; org_repos : repo list option
+  ; repo_cursor : int
+  ; repo_choices : (repo * [ `selected | `unselected ]) list option
   }
 
 let create_initial_model orgs =
-  { cursor = 0
-  ; choices = List.map (fun org -> org, `unselected) orgs
+  { org_cursor = 0
+  ; org_choices = List.map (fun org -> org, `unselected) orgs
   ; selected_org = None
-  ; org_repos = None
+  ; repo_cursor = 0
+  ; repo_choices = None
   }
 ;;
 
@@ -80,48 +82,79 @@ let update event model =
   match event with
   | Event.KeyDown (Key "q" | Escape) -> model, Command.Quit
   | Event.KeyDown (Up | Key "k") ->
-    let cursor =
-      if model.cursor = 0
-      then List.length model.choices - 1
-      else model.cursor - 1
-    in
-    { model with cursor }, Command.Noop
+    if model.selected_org = None
+    then (
+      let org_cursor =
+        if model.org_cursor = 0
+        then List.length model.org_choices - 1
+        else model.org_cursor - 1
+      in
+      { model with org_cursor }, Command.Noop)
+    else (
+      let repo_cursor =
+        if model.repo_cursor = 0
+        then List.length (Option.value ~default:[] model.repo_choices) - 1
+        else model.repo_cursor - 1
+      in
+      { model with repo_cursor }, Command.Noop)
   | Event.KeyDown (Down | Key "j") ->
-    let cursor =
-      if model.cursor = List.length model.choices - 1
-      then 0
-      else model.cursor + 1
-    in
-    { model with cursor }, Command.Noop
+    if model.selected_org = None
+    then (
+      let org_cursor =
+        if model.org_cursor = List.length model.org_choices - 1
+        then 0
+        else model.org_cursor + 1
+      in
+      { model with org_cursor }, Command.Noop)
+    else (
+      let repo_cursor =
+        if model.repo_cursor
+           = List.length (Option.value ~default:[] model.repo_choices) - 1
+        then 0
+        else model.repo_cursor + 1
+      in
+      { model with repo_cursor }, Command.Noop)
   | Event.KeyDown (Enter | Space) ->
     let selected_org_opt =
-      match List.nth_opt model.choices model.cursor with
+      match List.nth_opt model.org_choices model.org_cursor with
       | Some (org, _) -> Some org
       | None -> None
     in
     ( (match selected_org_opt with
        | Some org ->
+         let updated_model =
+           { model with
+             selected_org = Some org
+           ; repo_choices = None (* Reset repo_choices when selecting an org *)
+           }
+         in
          Lwt_main.run
            (let* org_repos = fetch_org_repos ~login:org.login in
             Lwt.return
-              { model with selected_org = Some org; org_repos = Some org_repos })
+              { updated_model with
+                repo_choices =
+                  Some (List.map (fun repo -> repo, `unselected) org_repos)
+              })
        | None -> model)
     , Command.Noop )
   | _ -> model, Command.Noop
 ;;
 
 let view model =
-  match model.selected_org, model.org_repos with
+  match model.selected_org, model.repo_choices with
   | Some selected_org, Some org_repos ->
     let org_name = selected_org.login in
     let repo_list =
-      org_repos |> List.map (fun repo -> repo.name) |> String.concat "\n"
+      org_repos
+      |> List.mapi (fun idx (repo, _checked) ->
+        let cursor = if model.repo_cursor = idx then ">" else " " in
+        Printf.sprintf "%s %s" cursor repo.name)
+      |> String.concat "\n"
     in
     Printf.sprintf
       {|
-Selected organization: %s
+Select a repo from %s:
 
-Repositories:
 %s
 
 Press q to quit.
@@ -129,10 +162,10 @@ Press q to quit.
       org_name
       repo_list
   | _ ->
-    let options =
-      model.choices
+    let orgs =
+      model.org_choices
       |> List.mapi (fun idx ((org : org), _checked) ->
-        let cursor = if model.cursor = idx then ">" else " " in
+        let cursor = if model.org_cursor = idx then ">" else " " in
         Printf.sprintf "%s %s" cursor org.login)
       |> String.concat "\n"
     in
@@ -143,7 +176,7 @@ Select an organization:
 
 Press q to quit.
 
-|} options
+|} orgs
 ;;
 
 let () =
