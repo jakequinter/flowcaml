@@ -186,7 +186,6 @@ let update event model =
                  })
           | _ -> model)
        | Workflows -> model)
-      (* or any other logic for workflow selection *)
     , Command.Noop )
   | _ -> model, Command.Noop
 ;;
