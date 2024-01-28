@@ -121,6 +121,7 @@ type model =
   ; context : context
   ; choices : (choice * [ `selected | `unselected ]) list
   ; selected_org : org option
+  ; selected_repo : repo option
   }
 
 let create_initial_model orgs =
@@ -128,6 +129,7 @@ let create_initial_model orgs =
   ; context = Orgs
   ; choices = List.map (fun org -> Org org, `unselected) orgs
   ; selected_org = None
+  ; selected_repo = None
   }
 ;;
 
@@ -170,7 +172,9 @@ let update event model =
        | Repos ->
          (match List.nth_opt model.choices model.cursor with
           | Some (Repo repo, _) ->
-            let updated_model = { model with context = Workflows } in
+            let updated_model =
+              { model with selected_repo = Some repo; context = Workflows }
+            in
             Lwt_main.run
               (let* workflows =
                  fetch_workflows
@@ -208,31 +212,39 @@ let view model =
   in
   match model.context with
   | Orgs ->
-    Printf.sprintf
-      {|
+    Fmt.str {|
 Select an organization:
 
 %s
 
 Press q to quit.
-|}
-      choices_str
+|} choices_str
   | Repos ->
-    Printf.sprintf {|
-Select a repository:
+    let org_name =
+      match model.selected_org with
+      | Some org -> org.login
+      | None -> ""
+    in
+    Fmt.str {|
+%s repos:
 
 %s
 
 Press q to quit.
-|} choices_str
+|} org_name choices_str
   | Workflows ->
-    Printf.sprintf {|
-Select a workflow:
+    let repo_name =
+      match model.selected_repo with
+      | Some repo -> repo.name
+      | None -> ""
+    in
+    Fmt.str {|
+%s workflows:
 
 %s
 
 Press q to quit.
-|} choices_str
+|} repo_name choices_str
 ;;
 
 let () =
