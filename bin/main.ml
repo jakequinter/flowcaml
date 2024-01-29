@@ -12,6 +12,14 @@ let get_required_env var =
 
 let highlight fmt = Spices.(default |> fg (color "#FF06B7") |> build) fmt
 
+let highlight_completed fmt =
+  Spices.(default |> fg (color "#00FF00") |> build) fmt
+;;
+
+let highlight_in_progress fmt =
+  Spices.(default |> fg (color "#FFA500") |> build) fmt
+;;
+
 (* Load required environment variables *)
 let () = Dotenv.export () |> ignore
 let gh_api_token = get_required_env "GITHUB_API_TOKEN"
@@ -205,7 +213,13 @@ let view model =
       Fmt.str "%s %s" cursor repo.name
     | Workflow workflow ->
       let cursor = if idx = model.cursor then highlight ">" else " " in
-      Fmt.str "%s status: %s, url: %s" cursor workflow.status workflow.url
+      let status =
+        match workflow.status with
+        | "completed" -> highlight_completed "%s" workflow.status
+        | "in_progress" -> highlight_in_progress "%s" workflow.status
+        | _ -> workflow.status
+      in
+      Fmt.str "%s %s: %s" cursor status workflow.url
   in
   let choices_str =
     model.choices |> List.mapi render_choice |> String.concat "\n"
