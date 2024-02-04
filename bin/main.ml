@@ -2,6 +2,7 @@ open Lwt.Syntax
 open Cohttp
 open Cohttp_lwt_unix
 open Minttea
+open Orgs
 
 let get_required_env var =
   match Stdlib.Sys.getenv var with
@@ -24,38 +25,7 @@ let highlight_in_progress fmt =
 let () = Dotenv.export () |> ignore
 let gh_api_token = get_required_env "GITHUB_API_TOKEN"
 
-type org = { login : string }
 type repo = { name : string }
-
-type workflow =
-  { status : string
-  ; url : string
-  }
-
-let parse_orgs json_str =
-  let json = Yojson.Safe.from_string json_str in
-  json
-  |> Yojson.Safe.Util.to_list
-  |> List.map (fun org ->
-    { login =
-        org |> Yojson.Safe.Util.member "login" |> Yojson.Safe.Util.to_string
-    })
-;;
-
-let headers = Header.init_with "Authorization" ("Bearer " ^ gh_api_token)
-
-let fetch_orgs =
-  let* _, body =
-    Client.get ~headers (Uri.of_string "https://api.github.com/user/orgs")
-  in
-  let* body = Cohttp_lwt.Body.to_string body in
-  parse_orgs body
-  |> List.sort (fun a b ->
-    String.compare
-      (String.lowercase_ascii a.login)
-      (String.lowercase_ascii b.login))
-  |> Lwt.return
-;;
 
 let parse_org_repos json_str =
   let json = Yojson.Safe.from_string json_str in
@@ -66,6 +36,13 @@ let parse_org_repos json_str =
         repo |> Yojson.Safe.Util.member "name" |> Yojson.Safe.Util.to_string
     })
 ;;
+
+type workflow =
+  { status : string
+  ; url : string
+  }
+
+let headers = Header.init_with "Authorization" ("Bearer " ^ gh_api_token)
 
 let fetch_org_repos ~login =
   let* _, body =
@@ -262,7 +239,7 @@ Press q to quit.
 ;;
 
 let () =
-  let orgs = Lwt_main.run fetch_orgs in
+  let orgs = Lwt_main.run (fetch_orgs headers) in
   let updated_model = create_initial_model orgs in
   let app = Minttea.app ~init ~update ~view () in
   Minttea.start app ~initial_model:updated_model
